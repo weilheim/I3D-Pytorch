@@ -51,8 +51,7 @@ def load_tensorflow(h5_dir='param/'):
         with tf.variable_scope('RGB'):
             rgb_model = i3d.InceptionI3d(
                 _NUM_CLASSES, spatial_squeeze=True, final_endpoint='Logits')
-            rgb_logits, _ = rgb_model(
-                rgb_input, is_training=False, dropout_keep_prob=1.0)
+            rgb_logits, _ = rgb_model(rgb_input, is_training=False, dropout_keep_prob=1.0)
         rgb_variable_map = {}
         for variable in tf.global_variables():
             if variable.name.split('/')[0] == 'RGB':

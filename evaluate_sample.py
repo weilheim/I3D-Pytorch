@@ -18,10 +18,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import numpy as np
+from PIL import Image
+
 import tensorflow as tf
+import torch
+# import torch.nn.functional as F
+# from torch.autograd import Variable
+import torchvision.transforms as transforms
 
 import i3d
+
+# import i3d_pytorch
+# import load_pytorch
+
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 _IMAGE_SIZE = 224
 _NUM_CLASSES = 400
@@ -43,95 +55,106 @@ _LABEL_MAP_PATH = 'data/label_map.txt'
 
 FLAGS = tf.flags.FLAGS
 
-tf.flags.DEFINE_string('eval_type', 'joint', 'rgb, flow, or joint')
+tf.flags.DEFINE_string('eval_type', 'rgb', 'rgb, flow, or joint')
 tf.flags.DEFINE_boolean('imagenet_pretrained', True, '')
 
 
-def main(unused_argv):
-  tf.logging.set_verbosity(tf.logging.INFO)
-  eval_type = 'rgb'   # FLAGS.eval_type
-  imagenet_pretrained = FLAGS.imagenet_pretrained
+def main():
+    tf.logging.set_verbosity(tf.logging.INFO)
+    eval_type = 'rgb'  # FLAGS.eval_type
+    imagenet_pretrained = FLAGS.imagenet_pretrained
 
-  if eval_type not in ['rgb', 'flow', 'joint']:
-    raise ValueError('Bad `eval_type`, must be one of rgb, flow, joint')
+    if eval_type not in ['rgb', 'flow', 'joint']:
+        raise ValueError('Bad `eval_type`, must be one of rgb, flow, joint')
 
-  kinetics_classes = [x.strip() for x in open(_LABEL_MAP_PATH)]
+    kinetics_classes = [x.strip() for x in open(_LABEL_MAP_PATH)]
 
-  if eval_type in ['rgb', 'joint']:
-    # RGB input has 3 channels.
-    rgb_input = tf.placeholder(
-        tf.float32,
-        shape=(1, _SAMPLE_VIDEO_FRAMES, _IMAGE_SIZE, _IMAGE_SIZE, 3))
-    with tf.variable_scope('RGB'):
-      rgb_model = i3d.InceptionI3d(
-          _NUM_CLASSES, spatial_squeeze=True, final_endpoint='Logits')
-      rgb_logits, _ = rgb_model(
-          rgb_input, is_training=False, dropout_keep_prob=1.0)
-    rgb_variable_map = {}
-    for variable in tf.global_variables():
-      if variable.name.split('/')[0] == 'RGB':
-        rgb_variable_map[variable.name.replace(':0', '')] = variable
-    rgb_saver = tf.train.Saver(var_list=rgb_variable_map, reshape=True)
-
-  if eval_type in ['flow', 'joint']:
-    # Flow input has only 2 channels.
-    flow_input = tf.placeholder(
-        tf.float32,
-        shape=(1, _SAMPLE_VIDEO_FRAMES, _IMAGE_SIZE, _IMAGE_SIZE, 2))
-    with tf.variable_scope('Flow'):
-      flow_model = i3d.InceptionI3d(
-          _NUM_CLASSES, spatial_squeeze=True, final_endpoint='Logits')
-      flow_logits, _ = flow_model(
-          flow_input, is_training=False, dropout_keep_prob=1.0)
-    flow_variable_map = {}
-    for variable in tf.global_variables():
-      if variable.name.split('/')[0] == 'Flow':
-        flow_variable_map[variable.name.replace(':0', '')] = variable
-    flow_saver = tf.train.Saver(var_list=flow_variable_map, reshape=True)
-
-  if eval_type == 'rgb':
-    model_logits = rgb_logits
-  elif eval_type == 'flow':
-    model_logits = flow_logits
-  else:
-    model_logits = rgb_logits + flow_logits
-  model_predictions = tf.nn.softmax(model_logits)
-
-  with tf.Session() as sess:
-    feed_dict = {}
     if eval_type in ['rgb', 'joint']:
-      if imagenet_pretrained:
-        rgb_saver.restore(sess, _CHECKPOINT_PATHS['rgb_imagenet'])
-      else:
-        rgb_saver.restore(sess, _CHECKPOINT_PATHS['rgb'])
-      tf.logging.info('RGB checkpoint restored')
-      rgb_sample = np.load(_SAMPLE_PATHS['rgb'])
-      tf.logging.info('RGB data loaded, shape=%s', str(rgb_sample.shape))
-      feed_dict[rgb_input] = rgb_sample
+        # RGB input has 3 channels.
+        rgb_input = tf.placeholder(
+            tf.float32,
+            shape=(1, _SAMPLE_VIDEO_FRAMES, _IMAGE_SIZE, _IMAGE_SIZE, 3))
+        with tf.variable_scope('RGB'):
+            rgb_model = i3d.InceptionI3d(
+                _NUM_CLASSES, spatial_squeeze=True, final_endpoint='Logits')
+            rgb_logits, rgb_prevs = rgb_model(
+                rgb_input, is_training=False, dropout_keep_prob=1.0)
+        rgb_variable_map = {}
+        for variable in tf.global_variables():
+            if variable.name.split('/')[0] == 'RGB':
+                rgb_variable_map[variable.name.replace(':0', '')] = variable
+        rgb_saver = tf.train.Saver(var_list=rgb_variable_map, reshape=True)
 
     if eval_type in ['flow', 'joint']:
-      if imagenet_pretrained:
-        flow_saver.restore(sess, _CHECKPOINT_PATHS['flow_imagenet'])
-      else:
-        flow_saver.restore(sess, _CHECKPOINT_PATHS['flow'])
-      tf.logging.info('Flow checkpoint restored')
-      flow_sample = np.load(_SAMPLE_PATHS['flow'])
-      tf.logging.info('Flow data loaded, shape=%s', str(flow_sample.shape))
-      feed_dict[flow_input] = flow_sample
+        # Flow input has only 2 channels.
+        flow_input = tf.placeholder(
+            tf.float32,
+            shape=(1, _SAMPLE_VIDEO_FRAMES, _IMAGE_SIZE, _IMAGE_SIZE, 2))
+        with tf.variable_scope('Flow'):
+            flow_model = i3d.InceptionI3d(
+                _NUM_CLASSES, spatial_squeeze=True, final_endpoint='Logits')
+            flow_logits, flow_prevs = flow_model(
+                flow_input, is_training=False, dropout_keep_prob=1.0)
+        flow_variable_map = {}
+        for variable in tf.global_variables():
+            if variable.name.split('/')[0] == 'Flow':
+                flow_variable_map[variable.name.replace(':0', '')] = variable
+        flow_saver = tf.train.Saver(var_list=flow_variable_map, reshape=True)
 
-    out_logits, out_predictions = sess.run(
-        [model_logits, model_predictions],
-        feed_dict=feed_dict)
+    if eval_type == 'rgb':
+        model_logits = rgb_logits
+    elif eval_type == 'flow':
+        model_logits = flow_logits
+    else:
+        model_logits = rgb_logits + flow_logits
+    model_predictions = tf.nn.softmax(model_logits)
 
-    out_logits = out_logits[0]
-    out_predictions = out_predictions[0]
-    sorted_indices = np.argsort(out_predictions)[::-1]
+    if eval_type == 'rgb':
+        model_prevs = rgb_prevs
+    elif eval_type == 'flow':
+        model_prevs = flow_prevs
+    else:
+        model_prevs = rgb_prevs + flow_prevs
 
-    print('Norm of logits: %f' % np.linalg.norm(out_logits))
-    print('\nTop classes and probabilities')
-    for index in sorted_indices[:20]:
-      print(out_predictions[index], out_logits[index], kinetics_classes[index])
+    with tf.Session() as sess:
+        feed_dict = {}
+        if eval_type in ['rgb', 'joint']:
+            if imagenet_pretrained:
+                rgb_saver.restore(sess, _CHECKPOINT_PATHS['rgb_imagenet'])
+            else:
+                rgb_saver.restore(sess, _CHECKPOINT_PATHS['rgb'])
+            tf.logging.info('RGB checkpoint restored')
+            rgb_sample = np.load(_SAMPLE_PATHS['rgb'])
+            tf.logging.info('RGB data loaded, shape=%s', str(rgb_sample.shape))
+            feed_dict[rgb_input] = rgb_sample
+
+        if eval_type in ['flow', 'joint']:
+            if imagenet_pretrained:
+                flow_saver.restore(sess, _CHECKPOINT_PATHS['flow_imagenet'])
+            else:
+                flow_saver.restore(sess, _CHECKPOINT_PATHS['flow'])
+            tf.logging.info('Flow checkpoint restored')
+            flow_sample = np.load(_SAMPLE_PATHS['flow'])
+            tf.logging.info('Flow data loaded, shape=%s', str(flow_sample.shape))
+            feed_dict[flow_input] = flow_sample
+
+        out_logits, out_predictions, out_prevs = sess.run(
+            [model_logits, model_predictions, model_prevs],
+            feed_dict=feed_dict)
+        print(tf.global_variables())
+
+        out_logits = out_logits[0]
+        out_predictions = out_predictions[0]
+        sorted_indices = np.argsort(out_predictions)[::-1]
+
+        print('Norm of logits: %f' % np.linalg.norm(out_logits))
+        print('\nTop classes and probabilities')
+        for index in sorted_indices[:20]:
+            print(out_predictions[index], out_logits[index], kinetics_classes[index])
+
+        np.save('Logits.npy', out_prevs['Logits'])
+        np.save('Features.npy', out_prevs['Features'])
 
 
 if __name__ == '__main__':
-  tf.app.run(main)
+    main()

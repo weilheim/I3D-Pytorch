@@ -87,6 +87,7 @@ class GroupScale(object):
 
     def __init__(self, size, interpolation=Image.BILINEAR):
         self.worker = torchvision.transforms.Scale(size, interpolation)
+        # self.worker = torchvision.transforms.Resize(size, interpolation)
 
     def __call__(self, img_group):
         return [self.worker(img) for img in img_group]
@@ -265,6 +266,21 @@ class Stack(object):
                 return np.concatenate(img_group, axis=2)
 
 
+class Stack4d(object):
+
+    def __init__(self, roll=False):
+        self.roll = roll
+
+    def __call__(self, img_group):
+        if img_group[0].mode == 'L':
+            return np.concatenate([np.array(x)[np.newaxis, :, :, np.newaxis] for x in img_group], axis=0)
+        elif img_group[0].mode == 'RGB':
+            if self.roll:
+                return np.concatenate([np.array(x)[:, :, ::-1][np.newaxis, :, :, :] for x in img_group], axis=0)
+            else:
+                return np.concatenate([np.array(x)[np.newaxis, :, :, :] for x in img_group], axis=0)
+
+
 class ToTorchFormatTensor(object):
     """ Converts a PIL.Image (RGB) or numpy.ndarray (H x W x C) in the range [0, 255]
     to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0] """
@@ -282,6 +298,19 @@ class ToTorchFormatTensor(object):
             # put it from HWC to CHW format
             # yikes, this transpose takes 80% of the loading time/CPU
             img = img.transpose(0, 1).transpose(0, 2).contiguous()
+        return img.float().div(255) if self.div else img.float()
+
+
+class ToTorchFormatTensor4d(object):
+    """ Converts a PIL.Image (RGB) or numpy.ndarray (T x H x W x C) in the range [0, 255]
+    to a torch.FloatTensor of shape (T x H x W x C) in the range [0.0, 1.0] """
+    def __init__(self, div=True):
+        self.div = div
+
+    def __call__(self, pic):
+        # handle numpy array
+        # img = torch.from_numpy(pic).permute(3, 0, 1, 2).contiguous()
+        img = torch.from_numpy(pic).contiguous()
         return img.float().div(255) if self.div else img.float()
 
 
