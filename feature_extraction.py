@@ -4,9 +4,11 @@ from __future__ import print_function
 
 import os
 import random
+import multiprocessing
 import numpy as np
 import time
 import torch
+from torch.autograd import Variable
 import torchvision
 # import torchvision.transforms as transforms
 import sonnet as snt
@@ -14,6 +16,8 @@ import tensorflow as tf
 from PIL import Image
 
 import i3d
+import i3d_pytorch
+import load_pytorch
 import transforms
 
 # os.environ['CUDA_VISIBLE_DEVICES'] = '3'
@@ -37,7 +41,7 @@ imagenet_pretrained = True
 
 # root = '/home/liusheng/UCF101/Orig_images/'
 root = '/home/liusheng/MSVD/Orig_images/'
-feature_dir = '/home/liusheng/MSVD/I3D_features/'
+feature_dir = '/home/liusheng/MSVD/I3D_features_fixed/'
 
 
 class DataLoader(object):
@@ -79,8 +83,8 @@ class DataLoader(object):
             transforms.Stack4d(roll=False),
             transforms.ToTorchFormatTensor4d(div=True),
             transforms.GroupNormalize(
-                mean=[.485, .456, .406],
-                std=[.229, .224, .225])
+                mean=[.5, .5, .5],
+                std=[.5, .5, .5])
         ])
 
     def __len__(self):
@@ -107,7 +111,7 @@ class DataLoader(object):
         return tensor.numpy()[np.newaxis, :], video
 
 
-def main(hierachy, eval_type='rgb', endpoint='Logits'):
+def main_tf(hierachy, eval_type='rgb', endpoint='Logits'):
     kinetics_classes = [x.strip() for x in open(_LABEL_MAP_PATH)]
 
     if eval_type not in ['rgb', 'flow', 'joint']:
@@ -198,9 +202,67 @@ def main(hierachy, eval_type='rgb', endpoint='Logits'):
                 #     print(predictions[ix], logits[ix], kinetics_classes[ix])
 
 
+def main_py(hierachy, eval_type='rgb', endpoint='Logits', gpu_id=-1):
+    if eval_type not in ['rgb', 'flow', 'joint']:
+        raise ValueError('Bad `eval_type`, must be one of rgb, flow, joint')
+
+    if eval_type in ['rgb', 'joint']:
+        # RGB input has 3 channels.
+        i3d_model = i3d_pytorch.InceptionI3D(input_channels=3,
+                                             num_classes=_NUM_CLASSES,
+                                             dropout_prob=0.0,
+                                             spatial_squeeze=True,
+                                             final_endpoint=endpoint)
+        state_dict = load_pytorch.load_i3d('RGB')
+        i3d_model.load_state_dict(state_dict)
+        i3d_model.eval()
+
+    if eval_type in ['flow', 'joint']:
+        # Flow input has only 2 channels.
+        i3d_model = i3d_pytorch.InceptionI3D(input_channels=2,
+                                             num_classes=_NUM_CLASSES,
+                                             dropout_prob=0.0,
+                                             spatial_squeeze=True,
+                                             final_endpoint=endpoint)
+        state_dict = load_pytorch.load_i3d('Flow')
+        i3d_model.load_state_dict(state_dict)
+        i3d_model.eval()
+    if gpu_id != -1:
+        i3d_model = i3d_model.cuda(gpu_id)
+
+    loader = DataLoader(root, hierachy=hierachy, rescale_size=_RESCALE_SIZE, crop_size=_CROP_SIZE)
+    for i in range(len(loader)):
+        start_time = time.time()
+        sample, video_name = loader.next_batch(shuffle=False)
+        sample = Variable(torch.from_numpy(sample).permute(0, 4, 1, 2, 3))
+        if gpu_id != -1:
+            sample = sample.cuda(gpu_id)
+        logits, previous = i3d_model(sample)
+        # predictions = F.softmax(logits, dim=1)
+        logits = np.squeeze(logits.cpu().data.numpy())
+        # predictions = np.squeeze(predictions.cpu().data.numpy())
+        features = torch.squeeze(previous['Features'].permute(0, 2, 3, 4, 1), dim=0)
+        features = torch.squeeze(features, dim=2)
+        features = torch.squeeze(features, dim=2).cpu().data.numpy()  # .permute(0, 2, 3, 4, 1).data.numpy()
+
+        print('\n', video_name)
+        print('sample:', sample.shape)
+        print('features:', features.shape)
+        print('seconds:', time.time() - start_time)
+        feature_name = video_name.split('/')[-1]
+        np.save(os.path.join(feature_dir, feature_name), features)
+
+        # sorted_indices = np.argsort(predictions)[::-1]
+        # print('\nTop classes and probabilities for', video_name)
+        # for ix in sorted_indices[:20]:
+        #     print(predictions[ix], logits[ix], kinetics_classes[ix])
+
+
 if __name__ == "__main__":
-    # loader = DataLoader(root, 2)
+    # loader = DataLoader(root, 1)
     # tensor, video = loader.next_batch()
-    # print(video, tensor.size())
+    # print(video, tensor.shape)
+
     hierachy = 1
-    main(hierachy)
+    # main_tf(hierachy)
+    main_py(hierachy, gpu_id=-1)

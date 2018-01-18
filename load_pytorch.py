@@ -114,7 +114,7 @@ def load_i3d(eval_type, h5_dir='param/'):
 
 if __name__ == "__main__":
     _SAMPLE_PATHS = {
-        'rgb': 'data/v_CricketShot_g04_c01_rgb.npy',
+        'rgb': 'data/my_v_CricketShot_g04_c01_rgb.npy',
         'flow': 'data/v_CricketShot_g04_c01_flow.npy',
     }
     _LABEL_MAP_PATH = 'data/label_map.txt'
@@ -123,13 +123,13 @@ if __name__ == "__main__":
     flow_sample = np.load(_SAMPLE_PATHS['flow'])
     print rgb_sample.shape   # (1, 79, 224, 224, 3)
 
-    i3d_model = i3d_pytorch.InceptionI3D(input_channels=2,
+    i3d_model = i3d_pytorch.InceptionI3D(input_channels=3,
                                          num_classes=400,
                                          dropout_prob=0.0,
                                          spatial_squeeze=True,
                                          final_endpoint='Logits')
-    # state_dict = load_i3d('RGB')
-    state_dict = load_i3d('Flow')
+    state_dict = load_i3d('RGB')
+    # state_dict = load_i3d('Flow')
     # print '\n'.join(state_dict.keys())
     #
     # print '\n'
@@ -138,10 +138,10 @@ if __name__ == "__main__":
     i3d_model.eval()
 
 
-    # rgb_sample = Variable(torch.from_numpy(rgb_sample).permute(0, 4, 1, 2, 3))
-    # out_logits, out_prevs = i3d_model(rgb_sample)
-    flow_sample = Variable(torch.from_numpy(flow_sample).permute(0, 4, 1, 2, 3))
-    out_logits, out_prevs = i3d_model(flow_sample)
+    rgb_sample = Variable(torch.from_numpy(rgb_sample).permute(0, 4, 1, 2, 3))
+    out_logits, out_prevs = i3d_model(rgb_sample)
+    # flow_sample = Variable(torch.from_numpy(flow_sample).permute(0, 4, 1, 2, 3))
+    # out_logits, out_prevs = i3d_model(flow_sample)
     out_predictions = F.softmax(out_logits, dim=1)
     # k0, k1, k2, 64
     # 64, 3, k0, k1, k2

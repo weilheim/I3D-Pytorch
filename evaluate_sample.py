@@ -23,17 +23,8 @@ import numpy as np
 from PIL import Image
 
 import tensorflow as tf
-import torch
-# import torch.nn.functional as F
-# from torch.autograd import Variable
-import torchvision.transforms as transforms
-
 import i3d
 
-# import i3d_pytorch
-# import load_pytorch
-
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 _IMAGE_SIZE = 224
 _NUM_CLASSES = 400
@@ -141,7 +132,7 @@ def main():
         out_logits, out_predictions, out_prevs = sess.run(
             [model_logits, model_predictions, model_prevs],
             feed_dict=feed_dict)
-        print(tf.global_variables())
+        # print(tf.global_variables())
 
         out_logits = out_logits[0]
         out_predictions = out_predictions[0]
@@ -151,9 +142,6 @@ def main():
         print('\nTop classes and probabilities')
         for index in sorted_indices[:20]:
             print(out_predictions[index], out_logits[index], kinetics_classes[index])
-
-        np.save('Logits.npy', out_prevs['Logits'])
-        np.save('Features.npy', out_prevs['Features'])
 
 
 if __name__ == '__main__':
